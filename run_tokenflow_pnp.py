@@ -282,19 +282,22 @@ def run(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', type=str, default='configs/config_pnp.yaml')
+    parser.add_argument('--config_path', type=str)
     opt = parser.parse_args()
     with open(opt.config_path, "r") as f:
         config = yaml.safe_load(f)
+
+    # TODO: Output path should be specified via CLI, not config
     config["output_path"] = os.path.join(config["output_path"] + f'_pnp_SD_{config["sd_version"]}',
                                              Path(config["data_path"]).stem,
+                                             # TODO: Save the prompt as txt in the output dir, not as a dir name
                                              config["prompt"][:240],
                                              f'attn_{config["pnp_attn_t"]}_f_{config["pnp_f_t"]}',
                                              f'batch_size_{str(config["batch_size"])}',
                                              str(config["n_timesteps"]),
     )
     os.makedirs(config["output_path"], exist_ok=True)
-    assert os.path.exists(config["data_path"]), "Data path does not exist"
+    assert os.path.exists(config["data_path"]), f"Data path does not exist: " + config["data_path"]
     with open(os.path.join(config["output_path"], "config.yaml"), "w") as f:
         yaml.dump(config, f)
     run(config)

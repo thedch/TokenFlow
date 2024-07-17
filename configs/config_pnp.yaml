@@ -4,7 +4,8 @@ device: 'cuda'
 output_path: 'tokenflow-results'
 
 # data
-data_path: 'data/woman-running'
+# TODO: Why is the data_path specified here? This seems like it should be a CLI argument, not a config variable?
+data_path: 'data/wolf'
 latents_path: 'latents' # should be the same as 'save_dir' arg used in preprocess
 n_inversion_steps: 500 # for retrieving the latents of the inversion
 n_frames: 40

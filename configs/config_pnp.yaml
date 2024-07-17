@@ -6,7 +6,7 @@ output_path: 'tokenflow-results'
 # data
 # TODO: Why is the data_path specified here? This seems like it should be a CLI argument, not a config variable?
 data_path: 'data/wolf'
-latents_path: 'latents' # should be the same as 'save_dir' arg used in preprocess
+latents_path: 'preprocess_output' # should be the same as 'save_dir' arg used in preprocess
 n_inversion_steps: 500 # for retrieving the latents of the inversion
 n_frames: 40
 
@@ -14,7 +14,7 @@ n_frames: 40
 sd_version: '2.1'
 guidance_scale: 7.5
 n_timesteps: 50
-prompt: "a marble sculpture of a woman running, Venus de Milo"
+prompt: "Cartoon mickey mouse disney animation beautiful"
 negative_prompt: "ugly, blurry, low res, unrealistic, unaesthetic"
 batch_size: 8
 

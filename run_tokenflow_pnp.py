@@ -347,7 +347,7 @@ class TokenFlow(nn.Module):
             noisy_latents, torch.arange(self.config["n_frames"])
         )
         save_video(
-            edited_frames, f'{self.config["output_path"]}/tokenflow_PnP_fps_10.mp4'
+            edited_frames, f'{self.config["output_path"]}/tokenflow_PnP_fps_10.mp4', fps=10
         )
         save_video(
             edited_frames,

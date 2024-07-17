@@ -1,3 +1,4 @@
+from typing import List
 import argparse
 import os
 from pathlib import Path
@@ -19,10 +20,8 @@ from torchvision.io import write_video
 
 from util import add_dict_to_yaml_file, save_video_frames, seed_everything
 
-DEVICE = "cuda"
 
-
-def get_timesteps(scheduler, num_inference_steps, strength):
+def get_timesteps(scheduler, num_inference_steps: int, strength: float):
     # get the original timestep using init_timestep
     init_timestep = min(int(num_inference_steps * strength), num_inference_steps)
 
@@ -42,8 +41,10 @@ class Preprocess(nn.Module):
 
         print("[INFO] loading stable diffusion...")
         if hf_key is not None:
+            raise DeprecationWarning("Deprecated")
             print(f"[INFO] using hugging face custom model key: {hf_key}")
             model_key = hf_key
+
         elif self.sd_version == "2.1":
             model_key = "stabilityai/stable-diffusion-2-1-base"
         elif self.sd_version == "2.0":
@@ -61,23 +62,30 @@ class Preprocess(nn.Module):
         self.vae = AutoencoderKL.from_pretrained(
             model_key, subfolder="vae", revision="fp16", torch_dtype=torch.float16
         ).to(self.device)
+
         self.tokenizer = CLIPTokenizer.from_pretrained(model_key, subfolder="tokenizer")
+
         self.text_encoder = CLIPTextModel.from_pretrained(
             model_key,
             subfolder="text_encoder",
             revision="fp16",
             torch_dtype=torch.float16,
         ).to(self.device)
+
         self.unet = UNet2DConditionModel.from_pretrained(
             model_key, subfolder="unet", revision="fp16", torch_dtype=torch.float16
         ).to(self.device)
+
         self.paths, self.frames, self.latents = self.get_data(
             opt.data_path, opt.n_frames
         )
 
         if self.sd_version == "ControlNet":
-            from diffusers import (ControlNetModel,
-                                   StableDiffusionControlNetPipeline)
+            raise DeprecationWarning("Deprecated")
+            from diffusers import (
+                ControlNetModel,
+                StableDiffusionControlNetPipeline
+            )
 
             controlnet = ControlNetModel.from_pretrained(
                 "lllyasviel/sd-controlnet-canny", torch_dtype=torch.float16
@@ -90,15 +98,18 @@ class Preprocess(nn.Module):
             self.unet = control_pipe.unet
             self.controlnet = control_pipe.controlnet
             self.canny_cond = self.get_canny_cond()
+
         elif self.sd_version == "depth":
+            raise DeprecationWarning("Deprecated")
             self.depth_maps = self.prepare_depth_maps()
+
         self.scheduler = DDIMScheduler.from_pretrained(model_key, subfolder="scheduler")
 
         # self.unet.enable_xformers_memory_efficient_attention()
         print("[INFO] loaded stable diffusion!")
 
     @torch.no_grad()
-    def prepare_depth_maps(self, model_type="DPT_Large", device="cuda"):
+    def prepare_depth_maps(self, model_type: str = "DPT_Large", device: str = "cuda"):
         depth_maps = []
         midas = torch.hub.load("intel-isl/MiDaS", model_type)
         midas.to(device)
@@ -178,7 +189,7 @@ class Preprocess(nn.Module):
         return noise_pred
 
     @torch.no_grad()
-    def get_text_embeds(self, prompt, negative_prompt):
+    def get_text_embeds(self, prompt: str, negative_prompt: str):
         text_input = self.tokenizer(
             prompt,
             padding="max_length",
@@ -187,6 +198,10 @@ class Preprocess(nn.Module):
             return_tensors="pt",
         )
         text_embeddings = self.text_encoder(text_input.input_ids.to("cuda"))[0]
+
+        if negative_prompt:
+            raise DeprecationWarning("Deprecated")
+
         uncond_input = self.tokenizer(
             negative_prompt,
             padding="max_length",
@@ -263,7 +278,9 @@ class Preprocess(nn.Module):
                 x_batch = latent_frames[b : b + batch_size]
                 model_input = x_batch
                 cond_batch = cond.repeat(x_batch.shape[0], 1, 1)
+
                 if self.sd_version == "depth":
+                    raise DeprecationWarning("Deprecated")
                     depth_maps = torch.cat([self.depth_maps[b : b + batch_size]])
                     model_input = torch.cat([x_batch, depth_maps], dim=1)
 
@@ -343,13 +360,13 @@ class Preprocess(nn.Module):
 
     @torch.no_grad()
     def extract_latents(
-        self, num_steps, save_path, batch_size, timesteps_to_save, inversion_prompt: str
+        self, num_steps: int, save_path: str, batch_size: int, timesteps_to_save: List[int], inversion_prompt: str
     ):
         self.scheduler.set_timesteps(num_steps)
 
         cond = self.get_text_embeds(
             prompt=inversion_prompt, negative_prompt=""
-        )  # [1].unsqueeze(0)
+        )[1].unsqueeze(0)
         latent_frames = self.latents
 
         inverted_x = self.ddim_inversion(
@@ -381,7 +398,7 @@ def prep(opt):
         model_key = "stabilityai/stable-diffusion-2-depth"
     toy_scheduler = DDIMScheduler.from_pretrained(model_key, subfolder="scheduler")
     toy_scheduler.set_timesteps(opt.save_steps)
-    timesteps_to_save, num_inference_steps = get_timesteps(
+    timesteps_to_save, _num_inference_steps = get_timesteps(
         toy_scheduler, num_inference_steps=opt.save_steps, strength=1.0
     )
 
@@ -403,7 +420,8 @@ def prep(opt):
     # save inversion prompt in a txt file
     with open(os.path.join(save_path, "inversion_prompt.txt"), "w") as f:
         f.write(opt.inversion_prompt)
-    model = Preprocess(DEVICE, opt)
+
+    model = Preprocess(device='cuda', opt=opt)
     recon_frames = model.extract_latents(
         num_steps=opt.steps,
         save_path=save_path,
@@ -414,8 +432,10 @@ def prep(opt):
 
     if not os.path.isdir(os.path.join(save_path, "frames")):
         os.mkdir(os.path.join(save_path, "frames"))
+
     for i, frame in enumerate(recon_frames):
         T.ToPILImage()(frame).save(os.path.join(save_path, "frames", f"{i:05d}.png"))
+
     frames = (recon_frames * 255).to(torch.uint8).cpu().permute(0, 2, 3, 1)
     write_video(os.path.join(save_path, "inverted.mp4"), frames, fps=10)
 
@@ -439,7 +459,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sd-version",
         type=str,
-        default="2.1",
+        required=True,
         choices=["1.5", "2.0", "2.1", "ControlNet", "depth"],
         help="stable diffusion version",
     )
@@ -447,7 +467,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, required=True)
     parser.add_argument("--save-steps", type=int, required=True)
     parser.add_argument("--n-frames", type=int, required=True)
-    parser.add_argument("--inversion-prompt", type=str, default="a woman running")
+    parser.add_argument("--inversion-prompt", type=str, required=True, help='leave empty or a string describing the video content')
     opt = parser.parse_args()
     video_path = opt.data_path
     save_video_frames(video_path, img_size=(opt.W, opt.H))

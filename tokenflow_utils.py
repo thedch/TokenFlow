@@ -1,8 +1,9 @@
-from typing import Type
-import torch
 import os
+from typing import Type
 
-from util import isinstance_str, batch_cosine_sim
+import torch
+
+from util import batch_cosine_sim, isinstance_str
 
 
 def register_pivotal(diffusion_model, is_pivotal):
@@ -21,30 +22,46 @@ def register_batch_idx(diffusion_model, batch_idx):
 
 def register_time(model, t):
     conv_module = model.unet.up_blocks[1].resnets[1]
-    setattr(conv_module, 't', t)
+    setattr(conv_module, "t", t)
     down_res_dict = {0: [0, 1], 1: [0, 1], 2: [0, 1]}
     up_res_dict = {1: [0, 1, 2], 2: [0, 1, 2], 3: [0, 1, 2]}
     for res in up_res_dict:
         for block in up_res_dict[res]:
-            module = model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
-            setattr(module, 't', t)
-            module = model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn2
-            setattr(module, 't', t)
+            module = (
+                model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
+            )
+            setattr(module, "t", t)
+            module = (
+                model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn2
+            )
+            setattr(module, "t", t)
     for res in down_res_dict:
         for block in down_res_dict[res]:
-            module = model.unet.down_blocks[res].attentions[block].transformer_blocks[0].attn1
-            setattr(module, 't', t)
-            module = model.unet.down_blocks[res].attentions[block].transformer_blocks[0].attn2
-            setattr(module, 't', t)
+            module = (
+                model.unet.down_blocks[res]
+                .attentions[block]
+                .transformer_blocks[0]
+                .attn1
+            )
+            setattr(module, "t", t)
+            module = (
+                model.unet.down_blocks[res]
+                .attentions[block]
+                .transformer_blocks[0]
+                .attn2
+            )
+            setattr(module, "t", t)
     module = model.unet.mid_block.attentions[0].transformer_blocks[0].attn1
-    setattr(module, 't', t)
+    setattr(module, "t", t)
     module = model.unet.mid_block.attentions[0].transformer_blocks[0].attn2
-    setattr(module, 't', t)
+    setattr(module, "t", t)
 
 
 def load_source_latents_t(t, latents_path):
-    latents_t_path = os.path.join(latents_path, f'noisy_latents_{t}.pt')
-    assert os.path.exists(latents_t_path), f'Missing latents at t {t} path {latents_t_path}'
+    latents_t_path = os.path.join(latents_path, f"noisy_latents_{t}.pt")
+    assert os.path.exists(
+        latents_t_path
+    ), f"Missing latents at t {t} path {latents_t_path}"
     latents = torch.load(latents_t_path)
     return latents
 
@@ -86,12 +103,18 @@ def register_conv_injection(model, injection_schedule):
 
             hidden_states = self.dropout(hidden_states)
             hidden_states = self.conv2(hidden_states)
-            if self.injection_schedule is not None and (self.t in self.injection_schedule or self.t == 1000):
+            if self.injection_schedule is not None and (
+                self.t in self.injection_schedule or self.t == 1000
+            ):
                 source_batch_size = int(hidden_states.shape[0] // 3)
                 # inject unconditional
-                hidden_states[source_batch_size : 2 * source_batch_size] = hidden_states[:source_batch_size]
+                hidden_states[source_batch_size : 2 * source_batch_size] = (
+                    hidden_states[:source_batch_size]
+                )
                 # inject conditional
-                hidden_states[2 * source_batch_size :] = hidden_states[:source_batch_size]
+                hidden_states[2 * source_batch_size :] = hidden_states[
+                    :source_batch_size
+                ]
 
             if self.conv_shortcut is not None:
                 input_tensor = self.conv_shortcut(input_tensor)
@@ -104,7 +127,7 @@ def register_conv_injection(model, injection_schedule):
 
     conv_module = model.unet.up_blocks[1].resnets[1]
     conv_module.forward = conv_forward(conv_module)
-    setattr(conv_module, 'injection_schedule', injection_schedule)
+    setattr(conv_module, "injection_schedule", injection_schedule)
 
 
 def register_extended_attention_pnp(model, injection_schedule):
@@ -125,7 +148,9 @@ def register_extended_attention_pnp(model, injection_schedule):
             k = self.to_k(encoder_hidden_states)
             v = self.to_v(encoder_hidden_states)
 
-            if self.injection_schedule is not None and (self.t in self.injection_schedule or self.t == 1000):
+            if self.injection_schedule is not None and (
+                self.t in self.injection_schedule or self.t == 1000
+            ):
                 # inject unconditional
                 q[n_frames : 2 * n_frames] = q[:n_frames]
                 k[n_frames : 2 * n_frames] = k[:n_frames]
@@ -134,12 +159,28 @@ def register_extended_attention_pnp(model, injection_schedule):
                 k[2 * n_frames :] = k[:n_frames]
 
             k_source = k[:n_frames]
-            k_uncond = k[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            k_cond = k[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_uncond = (
+                k[n_frames : 2 * n_frames]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
+            k_cond = (
+                k[2 * n_frames :]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
 
             v_source = v[:n_frames]
-            v_uncond = v[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            v_cond = v[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_uncond = (
+                v[n_frames : 2 * n_frames]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
+            v_cond = (
+                v[2 * n_frames :]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
 
             q_source = self.head_to_batch_dim(q[:n_frames])
             q_uncond = self.head_to_batch_dim(q[n_frames : 2 * n_frames])
@@ -174,21 +215,42 @@ def register_extended_attention_pnp(model, injection_schedule):
                 out_cond = []
                 for j in range(h):
                     sim_source_b = (
-                        torch.bmm(q_src[frame : frame + b, j], k_src[frame : frame + b, j].transpose(-1, -2))
+                        torch.bmm(
+                            q_src[frame : frame + b, j],
+                            k_src[frame : frame + b, j].transpose(-1, -2),
+                        )
                         * self.scale
                     )
                     sim_uncond_b = (
-                        torch.bmm(q_uncond[frame : frame + b, j], k_uncond[frame : frame + b, j].transpose(-1, -2))
+                        torch.bmm(
+                            q_uncond[frame : frame + b, j],
+                            k_uncond[frame : frame + b, j].transpose(-1, -2),
+                        )
                         * self.scale
                     )
                     sim_cond = (
-                        torch.bmm(q_cond[frame : frame + b, j], k_cond[frame : frame + b, j].transpose(-1, -2))
+                        torch.bmm(
+                            q_cond[frame : frame + b, j],
+                            k_cond[frame : frame + b, j].transpose(-1, -2),
+                        )
                         * self.scale
                     )
 
-                    out_source.append(torch.bmm(sim_source_b.softmax(dim=-1), v_src[frame : frame + b, j]))
-                    out_uncond.append(torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[frame : frame + b, j]))
-                    out_cond.append(torch.bmm(sim_cond.softmax(dim=-1), v_cond[frame : frame + b, j]))
+                    out_source.append(
+                        torch.bmm(
+                            sim_source_b.softmax(dim=-1), v_src[frame : frame + b, j]
+                        )
+                    )
+                    out_uncond.append(
+                        torch.bmm(
+                            sim_uncond_b.softmax(dim=-1), v_uncond[frame : frame + b, j]
+                        )
+                    )
+                    out_cond.append(
+                        torch.bmm(
+                            sim_cond.softmax(dim=-1), v_cond[frame : frame + b, j]
+                        )
+                    )
 
                 out_source = torch.cat(out_source, dim=0)
                 out_uncond = torch.cat(out_uncond, dim=0)
@@ -227,15 +289,17 @@ def register_extended_attention_pnp(model, injection_schedule):
     for _, module in model.unet.named_modules():
         if isinstance_str(module, "BasicTransformerBlock"):
             module.attn1.forward = sa_forward(module.attn1)
-            setattr(module.attn1, 'injection_schedule', [])
+            setattr(module.attn1, "injection_schedule", [])
 
     res_dict = {1: [1, 2], 2: [0, 1, 2], 3: [0, 1, 2]}
     # we are injecting attention in blocks 4 - 11 of the decoder, so not in the first block of the lowest resolution
     for res in res_dict:
         for block in res_dict[res]:
-            module = model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
+            module = (
+                model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
+            )
             module.forward = sa_forward(module)
-            setattr(module, 'injection_schedule', injection_schedule)
+            setattr(module, "injection_schedule", injection_schedule)
 
 
 def register_extended_attention(model):
@@ -257,11 +321,27 @@ def register_extended_attention(model):
             v = self.to_v(encoder_hidden_states)
 
             k_source = k[:n_frames]
-            k_uncond = k[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            k_cond = k[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_uncond = (
+                k[n_frames : 2 * n_frames]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
+            k_cond = (
+                k[2 * n_frames :]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
             v_source = v[:n_frames]
-            v_uncond = v[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            v_cond = v[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_uncond = (
+                v[n_frames : 2 * n_frames]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
+            v_cond = (
+                v[2 * n_frames :]
+                .reshape(1, n_frames * sequence_length, -1)
+                .repeat(n_frames, 1, 1)
+            )
 
             q_source = self.head_to_batch_dim(q[:n_frames])
             q_uncond = self.head_to_batch_dim(q[n_frames : 2 * n_frames])
@@ -288,12 +368,21 @@ def register_extended_attention(model):
             v_cond = v_cond.view(n_frames, h, sequence_length * n_frames, dim // h)
 
             for j in range(h):
-                sim_source_b = torch.bmm(q_src[:, j], k_src[:, j].transpose(-1, -2)) * self.scale
-                sim_uncond_b = torch.bmm(q_uncond[:, j], k_uncond[:, j].transpose(-1, -2)) * self.scale
-                sim_cond = torch.bmm(q_cond[:, j], k_cond[:, j].transpose(-1, -2)) * self.scale
+                sim_source_b = (
+                    torch.bmm(q_src[:, j], k_src[:, j].transpose(-1, -2)) * self.scale
+                )
+                sim_uncond_b = (
+                    torch.bmm(q_uncond[:, j], k_uncond[:, j].transpose(-1, -2))
+                    * self.scale
+                )
+                sim_cond = (
+                    torch.bmm(q_cond[:, j], k_cond[:, j].transpose(-1, -2)) * self.scale
+                )
 
                 out_source.append(torch.bmm(sim_source_b.softmax(dim=-1), v_src[:, j]))
-                out_uncond.append(torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[:, j]))
+                out_uncond.append(
+                    torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[:, j])
+                )
                 out_cond.append(torch.bmm(sim_cond.softmax(dim=-1), v_cond[:, j]))
 
             out_source = (
@@ -330,14 +419,16 @@ def register_extended_attention(model):
     # we are injecting attention in blocks 4 - 11 of the decoder, so not in the first block of the lowest resolution
     for res in res_dict:
         for block in res_dict[res]:
-            module = model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
+            module = (
+                model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
+            )
             module.forward = sa_forward(module)
 
 
-def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
-
+def make_tokenflow_attention_block(
+    block_class: Type[torch.nn.Module],
+) -> Type[torch.nn.Module]:
     class TokenFlowBlock(block_class):
-
         def forward(
             self,
             hidden_states,
@@ -348,22 +439,27 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             cross_attention_kwargs=None,
             class_labels=None,
         ) -> torch.Tensor:
-
             batch_size, sequence_length, dim = hidden_states.shape
             n_frames = batch_size // 3
-            mid_idx = n_frames // 2
             hidden_states = hidden_states.view(3, n_frames, sequence_length, dim)
 
             if self.use_ada_layer_norm:
                 norm_hidden_states = self.norm1(hidden_states, timestep)
             elif self.use_ada_layer_norm_zero:
-                norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.norm1(
-                    hidden_states, timestep, class_labels, hidden_dtype=hidden_states.dtype
+                norm_hidden_states, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+                    self.norm1(
+                        hidden_states,
+                        timestep,
+                        class_labels,
+                        hidden_dtype=hidden_states.dtype,
+                    )
                 )
             else:
                 norm_hidden_states = self.norm1(hidden_states)
 
-            norm_hidden_states = norm_hidden_states.view(3, n_frames, sequence_length, dim)
+            norm_hidden_states = norm_hidden_states.view(
+                3, n_frames, sequence_length, dim
+            )
             if self.pivotal_pass:
                 self.pivot_hidden_states = norm_hidden_states
             else:
@@ -374,7 +470,8 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                     batch_idxs.append(self.batch_idx - 1)
 
                 sim = batch_cosine_sim(
-                    norm_hidden_states[0].reshape(-1, dim), self.pivot_hidden_states[0][batch_idxs].reshape(-1, dim)
+                    norm_hidden_states[0].reshape(-1, dim),
+                    self.pivot_hidden_states[0][batch_idxs].reshape(-1, dim),
                 )
                 if len(batch_idxs) == 2:
                     sim1, sim2 = sim.chunk(2, dim=1)
@@ -390,19 +487,25 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                     idx2 = idx2.squeeze(1)
 
             # 1. Self-Attention
-            cross_attention_kwargs = cross_attention_kwargs if cross_attention_kwargs is not None else {}
+            cross_attention_kwargs = (
+                cross_attention_kwargs if cross_attention_kwargs is not None else {}
+            )
             if self.pivotal_pass:
                 # norm_hidden_states.shape = 3, n_frames * seq_len, dim
                 self.attn_output = self.attn1(
                     norm_hidden_states.view(batch_size, sequence_length, dim),
-                    encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
+                    encoder_hidden_states=encoder_hidden_states
+                    if self.only_cross_attention
+                    else None,
                     **cross_attention_kwargs,
                 )
                 # 3, n_frames * seq_len, dim - > 3 * n_frames, seq_len, dim
                 self.kf_attn_output = self.attn_output
             else:
                 batch_kf_size, _, _ = self.kf_attn_output.shape
-                self.attn_output = self.kf_attn_output.view(3, batch_kf_size // 3, sequence_length, dim)[
+                self.attn_output = self.kf_attn_output.view(
+                    3, batch_kf_size // 3, sequence_length, dim
+                )[
                     :, batch_idxs
                 ]  # 3, n_frames, seq_len, dim --> 3, len(batch_idxs), seq_len, dim
             if self.use_ada_layer_norm_zero:
@@ -412,10 +515,17 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             if not self.pivotal_pass:
                 if len(batch_idxs) == 2:
                     attn_1, attn_2 = self.attn_output[:, 0], self.attn_output[:, 1]
-                    attn_output1 = attn_1.gather(dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim))
-                    attn_output2 = attn_2.gather(dim=1, index=idx2.unsqueeze(-1).repeat(1, 1, dim))
+                    attn_output1 = attn_1.gather(
+                        dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim)
+                    )
+                    attn_output2 = attn_2.gather(
+                        dim=1, index=idx2.unsqueeze(-1).repeat(1, 1, dim)
+                    )
 
-                    s = torch.arange(0, n_frames).to(idx1.device) + batch_idxs[0] * n_frames
+                    s = (
+                        torch.arange(0, n_frames).to(idx1.device)
+                        + batch_idxs[0] * n_frames
+                    )
                     # distance from the pivot
                     p1 = batch_idxs[0] * n_frames + n_frames // 2
                     p2 = batch_idxs[1] * n_frames + n_frames // 2
@@ -425,22 +535,35 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                     w1 = d2 / (d1 + d2)
                     w1 = torch.sigmoid(w1)
 
-                    w1 = w1.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).repeat(3, 1, sequence_length, dim)
+                    w1 = (
+                        w1.unsqueeze(0)
+                        .unsqueeze(-1)
+                        .unsqueeze(-1)
+                        .repeat(3, 1, sequence_length, dim)
+                    )
                     attn_output1 = attn_output1.view(3, n_frames, sequence_length, dim)
                     attn_output2 = attn_output2.view(3, n_frames, sequence_length, dim)
                     attn_output = w1 * attn_output1 + (1 - w1) * attn_output2
                 else:
-                    attn_output = self.attn_output[:, 0].gather(dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim))
+                    attn_output = self.attn_output[:, 0].gather(
+                        dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim)
+                    )
 
-                attn_output = attn_output.reshape(batch_size, sequence_length, dim)  # 3 * n_frames, seq_len, dim
+                attn_output = attn_output.reshape(
+                    batch_size, sequence_length, dim
+                )  # 3 * n_frames, seq_len, dim
             else:
                 attn_output = self.attn_output
-            hidden_states = hidden_states.reshape(batch_size, sequence_length, dim)  # 3 * n_frames, seq_len, dim
+            hidden_states = hidden_states.reshape(
+                batch_size, sequence_length, dim
+            )  # 3 * n_frames, seq_len, dim
             hidden_states = attn_output + hidden_states
 
             if self.attn2 is not None:
                 norm_hidden_states = (
-                    self.norm2(hidden_states, timestep) if self.use_ada_layer_norm else self.norm2(hidden_states)
+                    self.norm2(hidden_states, timestep)
+                    if self.use_ada_layer_norm
+                    else self.norm2(hidden_states)
                 )
 
                 # 2. Cross-Attention
@@ -456,7 +579,9 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             norm_hidden_states = self.norm3(hidden_states)
 
             if self.use_ada_layer_norm_zero:
-                norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
+                norm_hidden_states = (
+                    norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
+                )
 
             ff_output = self.ff(norm_hidden_states)
 

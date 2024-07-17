@@ -301,17 +301,19 @@ def run(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config_path', type=str)
+    parser.add_argument('--config-path', type=str, required=True)
+    parser.add_argument('--output-dir', type=str, required=True)
     opt = parser.parse_args()
     with open(opt.config_path, "r") as f:
         config = yaml.safe_load(f)
 
     # TODO: Output path should be specified via CLI, not config
     config["output_path"] = os.path.join(
-        config["output_path"] + f'_pnp_SD_{config["sd_version"]}',
+        'final_edits_output',
+        opt.output_dir,
+        'pnp_SD_' + config["sd_version"],
         Path(config["data_path"]).stem,
         # TODO: Save the prompt as txt in the output dir, not as a dir name
-        config["prompt"][:240],
         f'attn_{config["pnp_attn_t"]}_f_{config["pnp_f_t"]}',
         f'batch_size_{str(config["batch_size"])}',
         str(config["n_timesteps"]),

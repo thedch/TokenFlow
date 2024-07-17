@@ -1,24 +1,24 @@
-from typing import List
 import argparse
 import os
 from pathlib import Path
+from typing import List
 
 import cv2
 import numpy as np
+import torch
+import torch.nn as nn
 import torchvision.transforms as T
 from diffusers import AutoencoderKL, DDIMScheduler, UNet2DConditionModel
 from PIL import Image
+from torchvision.io import write_video
 from tqdm import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer, logging
+
+from util import add_dict_to_yaml_file, save_video_frames, seed_everything
 
 # suppress partial model loading warning
 logging.set_verbosity_error()
 
-import torch
-import torch.nn as nn
-from torchvision.io import write_video
-
-from util import add_dict_to_yaml_file, save_video_frames, seed_everything
 
 
 def get_timesteps(scheduler, num_inference_steps: int, strength: float):
@@ -82,10 +82,8 @@ class Preprocess(nn.Module):
 
         if self.sd_version == "ControlNet":
             raise DeprecationWarning("Deprecated")
-            from diffusers import (
-                ControlNetModel,
-                StableDiffusionControlNetPipeline
-            )
+            from diffusers import (ControlNetModel,
+                                   StableDiffusionControlNetPipeline)
 
             controlnet = ControlNetModel.from_pretrained(
                 "lllyasviel/sd-controlnet-canny", torch_dtype=torch.float16
@@ -273,7 +271,7 @@ class Preprocess(nn.Module):
         timesteps_to_save = (
             timesteps_to_save if timesteps_to_save is not None else timesteps
         )
-        for i, t in enumerate(tqdm(timesteps, desc="DDIM inversion")):
+        for idx, ts in enumerate(tqdm(timesteps, desc="DDIM inversion")):
             for b in range(0, latent_frames.shape[0], batch_size):
                 x_batch = latent_frames[b : b + batch_size]
                 model_input = x_batch
@@ -284,10 +282,10 @@ class Preprocess(nn.Module):
                     depth_maps = torch.cat([self.depth_maps[b : b + batch_size]])
                     model_input = torch.cat([x_batch, depth_maps], dim=1)
 
-                alpha_prod_t = self.scheduler.alphas_cumprod[t]
+                alpha_prod_t = self.scheduler.alphas_cumprod[ts]
                 alpha_prod_t_prev = (
-                    self.scheduler.alphas_cumprod[timesteps[i - 1]]
-                    if i > 0
+                    self.scheduler.alphas_cumprod[timesteps[idx - 1]]
+                    if idx > 0
                     else self.scheduler.final_alpha_cumprod
                 )
 
@@ -297,25 +295,25 @@ class Preprocess(nn.Module):
                 sigma_prev = (1 - alpha_prod_t_prev) ** 0.5
 
                 eps = (
-                    self.unet(model_input, t, encoder_hidden_states=cond_batch).sample
+                    self.unet(model_input, ts, encoder_hidden_states=cond_batch).sample
                     if self.sd_version != "ControlNet"
                     else self.controlnet_pred(
                         x_batch,
-                        t,
-                        cond_batch,
-                        torch.cat([self.canny_cond[b : b + batch_size]]),
+                        t=ts,
+                        text_embed_input=cond_batch,
+                        controlnet_cond=torch.cat([self.canny_cond[b : b + batch_size]]),
                     )
                 )
                 pred_x0 = (x_batch - sigma_prev * eps) / mu_prev
                 latent_frames[b : b + batch_size] = mu * pred_x0 + sigma * eps
 
-            if save_latents and t in timesteps_to_save:
+            if save_latents and ts in timesteps_to_save:
                 torch.save(
                     latent_frames,
-                    os.path.join(save_path, "latents", f"noisy_latents_{t}.pt"),
+                    os.path.join(save_path, "latents", f"noisy_latents_{ts}.pt"),
                 )
         torch.save(
-            latent_frames, os.path.join(save_path, "latents", f"noisy_latents_{t}.pt")
+            latent_frames, os.path.join(save_path, "latents", f"noisy_latents_{ts}.pt")
         )
         return latent_frames
 

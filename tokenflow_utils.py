@@ -4,12 +4,14 @@ import os
 
 from util import isinstance_str, batch_cosine_sim
 
+
 def register_pivotal(diffusion_model, is_pivotal):
     for _, module in diffusion_model.named_modules():
         # If for some reason this has a different name, create an issue and I'll fix it
         if isinstance_str(module, "BasicTransformerBlock"):
             setattr(module, "pivotal_pass", is_pivotal)
-            
+
+
 def register_batch_idx(diffusion_model, batch_idx):
     for _, module in diffusion_model.named_modules():
         # If for some reason this has a different name, create an issue and I'll fix it
@@ -45,6 +47,7 @@ def load_source_latents_t(t, latents_path):
     assert os.path.exists(latents_t_path), f'Missing latents at t {t} path {latents_t_path}'
     latents = torch.load(latents_t_path)
     return latents
+
 
 def register_conv_injection(model, injection_schedule):
     def conv_forward(self):
@@ -86,9 +89,9 @@ def register_conv_injection(model, injection_schedule):
             if self.injection_schedule is not None and (self.t in self.injection_schedule or self.t == 1000):
                 source_batch_size = int(hidden_states.shape[0] // 3)
                 # inject unconditional
-                hidden_states[source_batch_size:2 * source_batch_size] = hidden_states[:source_batch_size]
+                hidden_states[source_batch_size : 2 * source_batch_size] = hidden_states[:source_batch_size]
                 # inject conditional
-                hidden_states[2 * source_batch_size:] = hidden_states[:source_batch_size]
+                hidden_states[2 * source_batch_size :] = hidden_states[:source_batch_size]
 
             if self.conv_shortcut is not None:
                 input_tensor = self.conv_shortcut(input_tensor)
@@ -102,6 +105,7 @@ def register_conv_injection(model, injection_schedule):
     conv_module = model.unet.up_blocks[1].resnets[1]
     conv_module.forward = conv_forward(conv_module)
     setattr(conv_module, 'injection_schedule', injection_schedule)
+
 
 def register_extended_attention_pnp(model, injection_schedule):
     def sa_forward(self):
@@ -123,30 +127,29 @@ def register_extended_attention_pnp(model, injection_schedule):
 
             if self.injection_schedule is not None and (self.t in self.injection_schedule or self.t == 1000):
                 # inject unconditional
-                q[n_frames:2 * n_frames] = q[:n_frames]
-                k[n_frames:2 * n_frames] = k[:n_frames]
+                q[n_frames : 2 * n_frames] = q[:n_frames]
+                k[n_frames : 2 * n_frames] = k[:n_frames]
                 # inject conditional
-                q[2 * n_frames:] = q[:n_frames]
-                k[2 * n_frames:] = k[:n_frames]
+                q[2 * n_frames :] = q[:n_frames]
+                k[2 * n_frames :] = k[:n_frames]
 
             k_source = k[:n_frames]
-            k_uncond = k[n_frames:2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            k_cond = k[2 * n_frames:].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_uncond = k[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_cond = k[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
 
             v_source = v[:n_frames]
-            v_uncond = v[n_frames:2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            v_cond = v[2 * n_frames:].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_uncond = v[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_cond = v[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
 
             q_source = self.head_to_batch_dim(q[:n_frames])
-            q_uncond = self.head_to_batch_dim(q[n_frames:2 * n_frames])
-            q_cond = self.head_to_batch_dim(q[2 * n_frames:])
+            q_uncond = self.head_to_batch_dim(q[n_frames : 2 * n_frames])
+            q_cond = self.head_to_batch_dim(q[2 * n_frames :])
             k_source = self.head_to_batch_dim(k_source)
             k_uncond = self.head_to_batch_dim(k_uncond)
             k_cond = self.head_to_batch_dim(k_cond)
             v_source = self.head_to_batch_dim(v_source)
             v_uncond = self.head_to_batch_dim(v_uncond)
             v_cond = self.head_to_batch_dim(v_cond)
-
 
             q_src = q_source.view(n_frames, h, sequence_length, dim // h)
             k_src = k_source.view(n_frames, h, sequence_length, dim // h)
@@ -161,8 +164,8 @@ def register_extended_attention_pnp(model, injection_schedule):
             out_source_all = []
             out_uncond_all = []
             out_cond_all = []
-            
-            single_batch = n_frames<=12
+
+            single_batch = n_frames <= 12
             b = n_frames if single_batch else 1
 
             for frame in range(0, n_frames, b):
@@ -170,29 +173,50 @@ def register_extended_attention_pnp(model, injection_schedule):
                 out_uncond = []
                 out_cond = []
                 for j in range(h):
-                    sim_source_b = torch.bmm(q_src[frame: frame+ b, j], k_src[frame: frame+ b, j].transpose(-1, -2)) * self.scale
-                    sim_uncond_b = torch.bmm(q_uncond[frame: frame+ b, j], k_uncond[frame: frame+ b, j].transpose(-1, -2)) * self.scale
-                    sim_cond = torch.bmm(q_cond[frame: frame+ b, j], k_cond[frame: frame+ b, j].transpose(-1, -2)) * self.scale
+                    sim_source_b = (
+                        torch.bmm(q_src[frame : frame + b, j], k_src[frame : frame + b, j].transpose(-1, -2))
+                        * self.scale
+                    )
+                    sim_uncond_b = (
+                        torch.bmm(q_uncond[frame : frame + b, j], k_uncond[frame : frame + b, j].transpose(-1, -2))
+                        * self.scale
+                    )
+                    sim_cond = (
+                        torch.bmm(q_cond[frame : frame + b, j], k_cond[frame : frame + b, j].transpose(-1, -2))
+                        * self.scale
+                    )
 
-                    out_source.append(torch.bmm(sim_source_b.softmax(dim=-1), v_src[frame: frame+ b, j]))
-                    out_uncond.append(torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[frame: frame+ b, j]))
-                    out_cond.append(torch.bmm(sim_cond.softmax(dim=-1), v_cond[frame: frame+ b, j]))
+                    out_source.append(torch.bmm(sim_source_b.softmax(dim=-1), v_src[frame : frame + b, j]))
+                    out_uncond.append(torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[frame : frame + b, j]))
+                    out_cond.append(torch.bmm(sim_cond.softmax(dim=-1), v_cond[frame : frame + b, j]))
 
                 out_source = torch.cat(out_source, dim=0)
-                out_uncond = torch.cat(out_uncond, dim=0) 
-                out_cond = torch.cat(out_cond, dim=0) 
+                out_uncond = torch.cat(out_uncond, dim=0)
+                out_cond = torch.cat(out_cond, dim=0)
                 if single_batch:
-                    out_source = out_source.view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
-                    out_uncond = out_uncond.view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
-                    out_cond = out_cond.view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
+                    out_source = (
+                        out_source.view(h, n_frames, sequence_length, dim // h)
+                        .permute(1, 0, 2, 3)
+                        .reshape(h * n_frames, sequence_length, -1)
+                    )
+                    out_uncond = (
+                        out_uncond.view(h, n_frames, sequence_length, dim // h)
+                        .permute(1, 0, 2, 3)
+                        .reshape(h * n_frames, sequence_length, -1)
+                    )
+                    out_cond = (
+                        out_cond.view(h, n_frames, sequence_length, dim // h)
+                        .permute(1, 0, 2, 3)
+                        .reshape(h * n_frames, sequence_length, -1)
+                    )
                 out_source_all.append(out_source)
                 out_uncond_all.append(out_uncond)
                 out_cond_all.append(out_cond)
-            
+
             out_source = torch.cat(out_source_all, dim=0)
             out_uncond = torch.cat(out_uncond_all, dim=0)
             out_cond = torch.cat(out_cond_all, dim=0)
-                
+
             out = torch.cat([out_source, out_uncond, out_cond], dim=0)
             out = self.batch_to_head_dim(out)
 
@@ -213,6 +237,7 @@ def register_extended_attention_pnp(model, injection_schedule):
             module.forward = sa_forward(module)
             setattr(module, 'injection_schedule', injection_schedule)
 
+
 def register_extended_attention(model):
     def sa_forward(self):
         to_out = self.to_out
@@ -232,15 +257,15 @@ def register_extended_attention(model):
             v = self.to_v(encoder_hidden_states)
 
             k_source = k[:n_frames]
-            k_uncond = k[n_frames: 2*n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            k_cond = k[2*n_frames:].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_uncond = k[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            k_cond = k[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
             v_source = v[:n_frames]
-            v_uncond = v[n_frames:2*n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
-            v_cond = v[2*n_frames:].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_uncond = v[n_frames : 2 * n_frames].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
+            v_cond = v[2 * n_frames :].reshape(1, n_frames * sequence_length, -1).repeat(n_frames, 1, 1)
 
             q_source = self.head_to_batch_dim(q[:n_frames])
-            q_uncond = self.head_to_batch_dim(q[n_frames: 2*n_frames])
-            q_cond = self.head_to_batch_dim(q[2 * n_frames:])
+            q_uncond = self.head_to_batch_dim(q[n_frames : 2 * n_frames])
+            q_cond = self.head_to_batch_dim(q[2 * n_frames :])
             k_source = self.head_to_batch_dim(k_source)
             k_uncond = self.head_to_batch_dim(k_uncond)
             k_cond = self.head_to_batch_dim(k_cond)
@@ -271,9 +296,24 @@ def register_extended_attention(model):
                 out_uncond.append(torch.bmm(sim_uncond_b.softmax(dim=-1), v_uncond[:, j]))
                 out_cond.append(torch.bmm(sim_cond.softmax(dim=-1), v_cond[:, j]))
 
-            out_source = torch.cat(out_source, dim=0).view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
-            out_uncond = torch.cat(out_uncond, dim=0).view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
-            out_cond = torch.cat(out_cond, dim=0).view(h, n_frames,sequence_length, dim // h).permute(1, 0, 2, 3).reshape(h * n_frames, sequence_length, -1)
+            out_source = (
+                torch.cat(out_source, dim=0)
+                .view(h, n_frames, sequence_length, dim // h)
+                .permute(1, 0, 2, 3)
+                .reshape(h * n_frames, sequence_length, -1)
+            )
+            out_uncond = (
+                torch.cat(out_uncond, dim=0)
+                .view(h, n_frames, sequence_length, dim // h)
+                .permute(1, 0, 2, 3)
+                .reshape(h * n_frames, sequence_length, -1)
+            )
+            out_cond = (
+                torch.cat(out_cond, dim=0)
+                .view(h, n_frames, sequence_length, dim // h)
+                .permute(1, 0, 2, 3)
+                .reshape(h * n_frames, sequence_length, -1)
+            )
 
             out = torch.cat([out_source, out_uncond, out_cond], dim=0)
             out = self.batch_to_head_dim(out)
@@ -293,6 +333,7 @@ def register_extended_attention(model):
             module = model.unet.up_blocks[res].attentions[block].transformer_blocks[0].attn1
             module.forward = sa_forward(module)
 
+
 def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]:
 
     class TokenFlowBlock(block_class):
@@ -307,7 +348,7 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             cross_attention_kwargs=None,
             class_labels=None,
         ) -> torch.Tensor:
-            
+
             batch_size, sequence_length, dim = hidden_states.shape
             n_frames = batch_size // 3
             mid_idx = n_frames // 2
@@ -327,13 +368,14 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                 self.pivot_hidden_states = norm_hidden_states
             else:
                 idx1 = []
-                idx2 = [] 
+                idx2 = []
                 batch_idxs = [self.batch_idx]
                 if self.batch_idx > 0:
                     batch_idxs.append(self.batch_idx - 1)
-                
-                sim = batch_cosine_sim(norm_hidden_states[0].reshape(-1, dim),
-                                        self.pivot_hidden_states[0][batch_idxs].reshape(-1, dim))
+
+                sim = batch_cosine_sim(
+                    norm_hidden_states[0].reshape(-1, dim), self.pivot_hidden_states[0][batch_idxs].reshape(-1, dim)
+                )
                 if len(batch_idxs) == 2:
                     sim1, sim2 = sim.chunk(2, dim=1)
                     # sim: n_frames * seq_len, len(batch_idxs) * seq_len
@@ -341,10 +383,10 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                     idx2.append(sim2.argmax(dim=-1))  # n_frames * seq_len
                 else:
                     idx1.append(sim.argmax(dim=-1))
-                idx1 = torch.stack(idx1 * 3, dim=0) # 3, n_frames * seq_len
+                idx1 = torch.stack(idx1 * 3, dim=0)  # 3, n_frames * seq_len
                 idx1 = idx1.squeeze(1)
                 if len(batch_idxs) == 2:
-                    idx2 = torch.stack(idx2 * 3, dim=0) # 3, n_frames * seq_len
+                    idx2 = torch.stack(idx2 * 3, dim=0)  # 3, n_frames * seq_len
                     idx2 = idx2.squeeze(1)
 
             # 1. Self-Attention
@@ -352,16 +394,17 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             if self.pivotal_pass:
                 # norm_hidden_states.shape = 3, n_frames * seq_len, dim
                 self.attn_output = self.attn1(
-                        norm_hidden_states.view(batch_size, sequence_length, dim),
-                        encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
-                        **cross_attention_kwargs,
-                    )
+                    norm_hidden_states.view(batch_size, sequence_length, dim),
+                    encoder_hidden_states=encoder_hidden_states if self.only_cross_attention else None,
+                    **cross_attention_kwargs,
+                )
                 # 3, n_frames * seq_len, dim - > 3 * n_frames, seq_len, dim
-                self.kf_attn_output = self.attn_output 
+                self.kf_attn_output = self.attn_output
             else:
                 batch_kf_size, _, _ = self.kf_attn_output.shape
-                self.attn_output = self.kf_attn_output.view(3, batch_kf_size // 3, sequence_length, dim)[:,
-                                   batch_idxs]  # 3, n_frames, seq_len, dim --> 3, len(batch_idxs), seq_len, dim
+                self.attn_output = self.kf_attn_output.view(3, batch_kf_size // 3, sequence_length, dim)[
+                    :, batch_idxs
+                ]  # 3, n_frames, seq_len, dim --> 3, len(batch_idxs), seq_len, dim
             if self.use_ada_layer_norm_zero:
                 self.attn_output = gate_msa.unsqueeze(1) * self.attn_output
 
@@ -381,16 +424,15 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
                     # weight
                     w1 = d2 / (d1 + d2)
                     w1 = torch.sigmoid(w1)
-                    
+
                     w1 = w1.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).repeat(3, 1, sequence_length, dim)
                     attn_output1 = attn_output1.view(3, n_frames, sequence_length, dim)
                     attn_output2 = attn_output2.view(3, n_frames, sequence_length, dim)
                     attn_output = w1 * attn_output1 + (1 - w1) * attn_output2
                 else:
-                    attn_output = self.attn_output[:,0].gather(dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim))
+                    attn_output = self.attn_output[:, 0].gather(dim=1, index=idx1.unsqueeze(-1).repeat(1, 1, dim))
 
-                attn_output = attn_output.reshape(
-                        batch_size, sequence_length, dim)  # 3 * n_frames, seq_len, dim
+                attn_output = attn_output.reshape(batch_size, sequence_length, dim)  # 3 * n_frames, seq_len, dim
             else:
                 attn_output = self.attn_output
             hidden_states = hidden_states.reshape(batch_size, sequence_length, dim)  # 3 * n_frames, seq_len, dim
@@ -416,7 +458,6 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
             if self.use_ada_layer_norm_zero:
                 norm_hidden_states = norm_hidden_states * (1 + scale_mlp[:, None]) + shift_mlp[:, None]
 
-
             ff_output = self.ff(norm_hidden_states)
 
             if self.use_ada_layer_norm_zero:
@@ -429,15 +470,14 @@ def make_tokenflow_attention_block(block_class: Type[torch.nn.Module]) -> Type[t
     return TokenFlowBlock
 
 
-def set_tokenflow(
-        model: torch.nn.Module):
+def set_tokenflow(model: torch.nn.Module):
     """
     Sets the tokenflow attention blocks in a model.
     """
 
     for _, module in model.named_modules():
         if isinstance_str(module, "BasicTransformerBlock"):
-            make_tokenflow_block_fn = make_tokenflow_attention_block 
+            make_tokenflow_block_fn = make_tokenflow_attention_block
             module.__class__ = make_tokenflow_block_fn(module.__class__)
 
             # Something needed for older versions of diffusers

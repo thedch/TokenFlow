@@ -5,17 +5,19 @@ import yaml
 import math
 
 import torchvision.transforms as T
-from torchvision.io import read_video,write_video
+from torchvision.io import read_video, write_video
 import os
 import random
 import numpy as np
 from torchvision.io import write_video
+
 # from kornia.filters import joint_bilateral_blur
 from kornia.geometry.transform import remap
 from kornia.utils.grid import create_meshgrid
 import cv2
 
-def save_video_frames(video_path, img_size=(512,512)):
+
+def save_video_frames(video_path, img_size=(512, 512)):
     video, _, _ = read_video(video_path, output_format="TCHW")
     # rotate video -90 degree if video is .mov format. this is a weird bug in torchvision
     if video_path.endswith('.mov'):
@@ -25,8 +27,9 @@ def save_video_frames(video_path, img_size=(512,512)):
     for i in range(len(video)):
         ind = str(i).zfill(5)
         image = T.ToPILImage()(video[i])
-        image_resized = image.resize((img_size),  resample=Image.Resampling.LANCZOS)
+        image_resized = image.resize((img_size), resample=Image.Resampling.LANCZOS)
         image_resized.save(f'data/{video_name}/{ind}.png')
+
 
 def add_dict_to_yaml_file(file_path, key, value):
     data = {}
@@ -42,19 +45,20 @@ def add_dict_to_yaml_file(file_path, key, value):
     # Save the data back to the YAML file
     with open(file_path, 'w') as file:
         yaml.dump(data, file)
-        
+
+
 def isinstance_str(x: object, cls_name: str):
     """
     Checks whether x has any class *named* cls_name in its ancestry.
     Doesn't require access to the class's implementation.
-    
+
     Useful for patching!
     """
 
     for _cls in x.__class__.__mro__:
         if _cls.__name__ == cls_name:
             return True
-    
+
     return False
 
 
@@ -101,5 +105,3 @@ def seed_everything(seed):
     torch.cuda.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
-
-
